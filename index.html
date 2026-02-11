@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Laser Therapy</title>
+<style>
+body { margin:0; overflow:hidden; background:black; font-family:Arial; }
+canvas { display:block; margin:auto; background:black; }
+#ui {
+  position:absolute;
+  top:10px;
+  left:10px;
+  color:white;
+  font-size:18px;
+}
+#gameOver {
+  position:absolute;
+  top:50%; left:50%;
+  transform:translate(-50%,-50%);
+  color:white;
+  font-size:40px;
+  display:none;
+  text-align:center;
+}
+button { padding:10px 20px; font-size:18px; cursor:pointer; }
+</style>
+</head>
+<body>
+
+<div id="ui">
+Score: <span id="score">0</span><br>
+Lives: <span id="lives">3</span><br>
+Level: <span id="level">1</span>
+</div>
+
+<div id="gameOver">
+GAME OVER<br>
+<button onclick="restart()">Restart</button>
+</div>
+
+<canvas id="game" width="500" height="600"></canvas>
+
+<script>
+
+const playerImg = new Image();
+playerImg.src = "spaceship.png";
+
+const enemyImg = new Image();
+enemyImg.src = "enemy.png";
+
+const bossImg = new Image();
+bossImg.src = "assets/boss.png";
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let gameState = "running";
+let score = 0;
+let lives = 3;
+let level = 1;
+let nextBossScore = 200;
+
+let bullets = [];
+let enemies = [];
+let boss = null;
+
+
+
+function playSound(src, volume = 0.6){
+  const sound = new Audio(src);
+  sound.volume = volume;
+  sound.play().catch(()=>{});
+}
+
+
+const player = {
+  x: 220,
+  y: 520,
+  w: 64,
+  h: 64,
+  speed: 6
+};
+
+let keys = {};
+
+document.addEventListener("keydown", e=>
+{ keys[e.key] = true; if(e.key === " ") shoot(); }); 
+
+document.addEventListener("keyup", e=> keys[e.key] = false);
+
+let lastShot = 0;
+
+function shoot(){
+  const now = Date.now();
+  if(now - lastShot < 200) return; // 0.2 sec cooldown
+  lastShot = now;
+
+  bullets.push({
+    x: player.x + player.w/2 - 3,
+    y: player.y,
+    w: 6,
+    h: 15,
+    speed: 8
+  });
+
+  playSound("shoot.wav", 0.5);
+}
+
+
+
+function spawnEnemy(){
+  enemies.push({
+    x: Math.random()*(canvas.width-40),
+    y:-40,
+    w:40,
+    h:40,
+    speed:2 + level*0.5
+  });
+}
+
+function spawnBoss(){
+  boss = {
+    x:150,
+    y:50,
+    w:200,
+    h:120,
+    health: 40 + level*15
+  };
+}
+
+setInterval(()=>{
+  if(gameState === "running" && !boss){
+    spawnEnemy();
+  }
+},600);
+
+let stars = [];
+for(let i=0;i<100;i++){
+  stars.push({
+    x:Math.random()*canvas.width,
+    y:Math.random()*canvas.height,
+    size:Math.random()*2,
+    speed:Math.random()*1+0.5
+  });
+}
+
+function drawStars(){
+  ctx.fillStyle="white";
+  for(let star of stars){
+    ctx.fillRect(star.x,star.y,star.size,star.size);
+    star.y += star.speed;
+    if(star.y > canvas.height){
+      star.y = 0;
+      star.x = Math.random()*canvas.width;
+    }
+  }
+}
+
+function collision(a,b){
+  return a.x < b.x + b.w &&
+         a.x + a.w > b.x &&
+         a.y < b.y + b.h &&
+         a.y + a.h > b.y;
+}
+
+function update(){
+  if(gameState !== "running") return;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawStars();
+
+  if(keys["ArrowLeft"]) player.x -= player.speed;
+  if(keys["ArrowRight"]) player.x += player.speed;
+
+  player.x = Math.max(0, Math.min(canvas.width-player.w, player.x));
+
+  ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+
+
+  for(let i=bullets.length-1;i>=0;i--){
+    let b = bullets[i];
+    b.y -= b.speed;
+    ctx.fillStyle="yellow";
+    ctx.fillRect(b.x,b.y,b.w,b.h);
+
+    if(b.y < 0) bullets.splice(i,1);
+  }
+
+  for(let i=enemies.length-1;i>=0;i--){
+    let e = enemies[i];
+    e.y += e.speed;
+    ctx.drawImage(enemyImg, e.x, e.y, e.w, e.h);
+
+
+    if(collision(player,e)){
+      enemies.splice(i,1);
+      lives--;
+      playSound("explosion.wav", 0.7);
+      updateUI();
+      if(lives<=0) endGame();
+      continue;
+    }
+
+    for(let j=bullets.length-1;j>=0;j--){
+      if(collision(bullets[j],e)){
+        enemies.splice(i,1);
+        bullets.splice(j,1);
+        score += 10;
+        playSound("explosion.wav", 0.7);
+        updateUI();
+        break;
+      }
+    }
+  }
+
+  if(boss){
+    ctx.drawImage(bossImg, boss.x, boss.y, boss.w, boss.h);
+
+
+    ctx.fillStyle="red";
+    ctx.fillRect(150,20,boss.health*3,10);
+
+    for(let i=bullets.length-1;i>=0;i--){
+      if(collision(bullets[i],boss)){
+        bullets.splice(i,1);
+        boss.health--;
+        if(boss.health<=0){
+          score += 200;
+          level++;
+          nextBossScore += 200;
+          boss = null;
+          updateUI();
+        }
+      }
+    }
+  }
+
+  if(score >= nextBossScore && !boss){
+    spawnBoss();
+  }
+
+  requestAnimationFrame(update);
+}
+
+function updateUI(){
+  document.getElementById("score").innerText = score;
+  document.getElementById("lives").innerText = lives;
+  document.getElementById("level").innerText = level;
+}
+
+function endGame(){
+  gameState = "gameover";
+  document.getElementById("gameOver").style.display="block";
+}
+
+function restart(){
+  score=0;
+  lives=3;
+  level=1;
+  nextBossScore=200;
+  bullets=[];
+  enemies=[];
+  boss=null;
+  gameState="running";
+  updateUI();
+  document.getElementById("gameOver").style.display="none";
+  update();
+}
+let imagesLoaded = 0;
+const totalImages = 3;
+
+function imageLoaded(){
+  imagesLoaded++;
+  if(imagesLoaded === totalImages){
+    update();
+  }
+}
+
+playerImg.onload = imageLoaded;
+enemyImg.onload = imageLoaded;
+bossImg.onload = imageLoaded;
+
+update();
+</script>
+</body>
+</html>
